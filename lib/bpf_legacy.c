@@ -1139,6 +1139,7 @@ struct bpf_elf_ctx {
 	Elf_Data		*sym_tab;
 	Elf_Data		*str_tab;
 	Elf_Data		*btf_data;
+	Elf_Data		*glo_data;
 	char			obj_uid[64];
 	int			obj_fd;
 	int			btf_fd;
@@ -1154,6 +1155,7 @@ struct bpf_elf_ctx {
 	int			sec_maps;
 	int			sec_text;
 	int			sec_btf;
+	int			sec_data;
 	char			license[ELF_MAX_LICENSE_LEN];
 	enum bpf_prog_type	type;
 	__u32			ifindex;
@@ -2049,6 +2051,15 @@ static int bpf_fetch_text(struct bpf_elf_ctx *ctx, int section,
 	return 0;
 }
 
+static int bpf_fetch_data(struct bpf_elf_ctx *ctx, int section,
+			  struct bpf_elf_sec_data *data)
+{
+	ctx->sec_data = section;
+	ctx->glo_data = data->sec_data;
+	ctx->sec_done[section] = true;
+	return 0;
+}
+
 static void bpf_btf_report(int fd, struct bpf_elf_ctx *ctx)
 {
 	fprintf(stderr, "\nBTF debug data section \'.BTF\' %s%s (%d)!\n",
@@ -2262,6 +2273,11 @@ static bool bpf_has_call_data(const struct bpf_elf_ctx *ctx)
 	return ctx->sec_text;
 }
 
+static bool bpf_has_glob_data(const struct bpf_elf_ctx *ctx)
+{
+	return ctx->sec_data;
+}
+
 static int bpf_fetch_ancillary(struct bpf_elf_ctx *ctx, bool check_text_sec)
 {
 	struct bpf_elf_sec_data data;
@@ -2283,6 +2299,9 @@ static int bpf_fetch_ancillary(struct bpf_elf_ctx *ctx, bool check_text_sec)
 			 !strcmp(data.sec_name, ".text") &&
 			 check_text_sec)
 			ret = bpf_fetch_text(ctx, i, &data);
+		else if (data.sec_hdr.sh_type == SHT_PROGBITS &&
+			 !strcmp(data.sec_name, ".data"))
+			ret = bpf_fetch_data(ctx, i, &data);
 		else if (data.sec_hdr.sh_type == SHT_SYMTAB &&
 			 !strcmp(data.sec_name, ".symtab"))
 			ret = bpf_fetch_symtab(ctx, i, &data);
@@ -2396,6 +2415,21 @@ static int bpf_apply_relo_map(struct bpf_elf_ctx *ctx, struct bpf_elf_prog *prog
 	return 0;
 }
 
+static int bpf_apply_relo_glob(struct bpf_elf_ctx *ctx, struct bpf_elf_prog *prog,
+			       GElf_Rel *relo, GElf_Sym *sym,
+			       struct bpf_relo_props *props)
+{
+	unsigned int insn_off = relo->r_offset / sizeof(struct bpf_insn);
+	int *data;
+
+	if (insn_off >= prog->insns_num)
+		return -EINVAL;
+
+	data = ctx->glo_data->d_buf + sym->st_value;
+	prog->insns[insn_off].imm = *data;
+	return 0;
+}
+
 static int bpf_apply_relo_call(struct bpf_elf_ctx *ctx, struct bpf_elf_prog *prog,
 			       GElf_Rel *relo, GElf_Sym *sym,
 			       struct bpf_relo_props *props)
@@ -2450,10 +2484,12 @@ static int bpf_apply_relo_data(struct bpf_elf_ctx *ctx,
 
 		if (sym.st_shndx == ctx->sec_maps)
 			ret = bpf_apply_relo_map(ctx, prog, &relo, &sym, props);
+		else if (sym.st_shndx == ctx->sec_data)
+			ret = bpf_apply_relo_glob(ctx, prog, &relo, &sym, props);
 		else if (sym.st_shndx == ctx->sec_text)
 			ret = bpf_apply_relo_call(ctx, prog, &relo, &sym, props);
 		else
-			fprintf(stderr, "ELF contains non-{map,call} related relo data in entry %u pointing to section %u! Compiler bug?!\n",
+			fprintf(stderr, "ELF contains non-{map,data,call} related relo data in entry %u pointing to section %u! Compiler bug?!\n",
 				relo_ent, sym.st_shndx);
 		if (ret < 0)
 			return ret;
@@ -2549,7 +2585,7 @@ static int bpf_fetch_prog_sec(struct bpf_elf_ctx *ctx, const char *section)
 			return ret;
 	}
 
-	if (bpf_has_map_data(ctx) || bpf_has_call_data(ctx))
+	if (bpf_has_map_data(ctx) || bpf_has_call_data(ctx) || bpf_has_glob_data(ctx))
 		ret = bpf_fetch_prog_relo(ctx, section, &lderr, &sseen, &prog);
 	if (ret < 0 && !lderr)
 		ret = bpf_fetch_prog(ctx, section, &sseen);
