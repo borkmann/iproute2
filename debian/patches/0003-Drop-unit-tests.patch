@@ -1,0 +1,27 @@
+From c81f85ab1a015b24dd81becd6d055544cbbada9a Mon Sep 17 00:00:00 2001
+From: Joe Stringer <joe@wand.net.nz>
+Date: Fri, 15 Feb 2019 15:07:21 -0800
+Subject: [PATCH iproute2-next] Drop unit tests
+To: Stephen Hemminger <stephen@networkplumber.org>
+Cc: netdev@vger.kernel.org, daniel@iogearbox.net
+
+---
+ testsuite/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/testsuite/Makefile b/testsuite/Makefile
+index 7f247bbc1c80..0a031e5e0ef9 100644
+--- a/testsuite/Makefile
++++ b/testsuite/Makefile
+@@ -39,7 +39,7 @@ listtests:
+ generate_nlmsg:
+ 	$(MAKE) -C tools
+ 
+-alltests: generate_nlmsg $(TESTS)
++alltests: generate_nlmsg
+ 
+ testclean:
+ 	@echo "Removing $(RESULTS_DIR) dir ..."
+-- 
+2.19.1
+

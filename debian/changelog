@@ -1,3 +1,9 @@
+iproute2 (4.20.0-1ubuntu0bjn2) cosmic; urgency=medium
+
+  * Import poc patches to support global data
+
+ -- Joe Stringer <joe@cilium.io>  Fri, 15 Feb 2019 14:41:07 -0800
+
 iproute2 (4.20.0-1) unstable; urgency=medium
 
   * Merge tag 'upstream/4.20.0'
