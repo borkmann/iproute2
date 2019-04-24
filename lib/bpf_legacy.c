@@ -60,6 +60,7 @@ static const enum bpf_prog_type __bpf_types[] = {
 	BPF_PROG_TYPE_LWT_IN,
 	BPF_PROG_TYPE_LWT_OUT,
 	BPF_PROG_TYPE_LWT_XMIT,
+	BPF_PROG_TYPE_CGROUP_SOCK_ADDR,
 };
 
 static const struct bpf_prog_meta __bpf_prog_meta[] = {
@@ -100,6 +101,28 @@ static const struct bpf_prog_meta __bpf_prog_meta[] = {
 		.subdir		= "ip",
 		.section	= ELF_SECTION_PROG,
 	},
+	[BPF_PROG_TYPE_CGROUP_SOCK_ADDR] = {
+		.type		= "sockaddr",
+		.subdir		= "sa",
+		.section	= ELF_SECTION_PROG,
+	},
+};
+
+static const char * const attach_type_strings[] = {
+	[BPF_CGROUP_INET_INGRESS]	= "ingress",
+	[BPF_CGROUP_INET_EGRESS]	= "egress",
+	[BPF_CGROUP_INET_SOCK_CREATE]	= "sock_create",
+	[BPF_CGROUP_SOCK_OPS]		= "sock_ops",
+	[BPF_CGROUP_DEVICE]		= "device",
+	[BPF_CGROUP_INET4_BIND]		= "bind4",
+	[BPF_CGROUP_INET6_BIND]		= "bind6",
+	[BPF_CGROUP_INET4_CONNECT]	= "connect4",
+	[BPF_CGROUP_INET6_CONNECT]	= "connect6",
+	[BPF_CGROUP_INET4_POST_BIND]	= "post_bind4",
+	[BPF_CGROUP_INET6_POST_BIND]	= "post_bind6",
+	[BPF_CGROUP_UDP4_SENDMSG]	= "sendmsg4",
+	[BPF_CGROUP_UDP6_SENDMSG]	= "sendmsg6",
+	[__MAX_BPF_ATTACH_TYPE]		= NULL,
 };
 
 static const char *bpf_prog_to_subdir(enum bpf_prog_type type)
@@ -116,11 +139,26 @@ const char *bpf_prog_to_default_section(enum bpf_prog_type type)
 	return __bpf_prog_meta[type].section;
 }
 
+static enum bpf_attach_type bpf_attach_type_from_str(const char *str)
+{
+	enum bpf_attach_type type;
+
+	for (type = 0; type < __MAX_BPF_ATTACH_TYPE; type++) {
+		if (attach_type_strings[type] &&
+		    !strcmp(str, attach_type_strings[type]))
+			return type;
+	}
+
+	return __MAX_BPF_ATTACH_TYPE;
+}
+
 #ifdef HAVE_ELF
 static int bpf_obj_open(const char *path, enum bpf_prog_type type,
+			enum bpf_attach_type attach_type,
 			const char *sec, __u32 ifindex, bool verbose);
 #else
 static int bpf_obj_open(const char *path, enum bpf_prog_type type,
+			enum bpf_attach_type attach_type,
 			const char *sec, __u32 ifindex, bool verbose)
 {
 	fprintf(stderr, "No ELF library support compiled in.\n");
@@ -877,7 +915,22 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl)
 						*argv);
 					return -1;
 				}
+
 				NEXT_ARG_FWD();
+				if (argc > 0 && matches(*argv, "attach_type") == 0) {
+					enum bpf_attach_type type;
+
+					NEXT_ARG();
+					type = bpf_attach_type_from_str(*argv);
+					if (type != __MAX_BPF_ATTACH_TYPE) {
+						cfg->attach_type = type;
+					} else {
+						fprintf(stderr, "What attach_type is \"%s\"?\n",
+							*argv);
+						return -1;
+					}
+					NEXT_ARG_FWD();
+				}
 			} else {
 				cfg->type = BPF_PROG_TYPE_SCHED_CLS;
 			}
@@ -938,6 +991,7 @@ static int bpf_do_load(struct bpf_cfg_in *cfg)
 		return iproute2_load_libbpf(cfg);
 #endif
 		cfg->prog_fd = bpf_obj_open(cfg->object, cfg->type,
+					    cfg->attach_type,
 					    cfg->section, cfg->ifindex,
 					    cfg->verbose);
 		return cfg->prog_fd;
@@ -1063,6 +1117,42 @@ out_prog:
 	return ret;
 }
 
+static int bpf_obj_pin(int fd, const char *pathname)
+{
+	union bpf_attr attr = {};
+
+	attr.pathname = bpf_ptr_to_u64(pathname);
+	attr.bpf_fd = fd;
+
+	return bpf(BPF_OBJ_PIN, &attr, sizeof(attr));
+}
+
+int bpf_pin_prog(const char *dst_path, int argc, char **argv)
+{
+	const bool opt_tbl[BPF_MODE_MAX] = {
+		[EBPF_OBJECT]	= true,
+	};
+	struct bpf_cfg_in cfg = {
+		.type		= BPF_PROG_TYPE_UNSPEC,
+		.argc		= argc,
+		.argv		= argv,
+	};
+	int ret, prog_fd;
+
+	ret = bpf_do_parse(&cfg, opt_tbl);
+	if (ret < 0)
+		return ret;
+
+	ret = bpf_do_load(&cfg);
+	if (ret < 0)
+		return ret;
+
+	prog_fd = cfg.prog_fd;
+	ret = bpf_obj_pin(prog_fd, dst_path);
+	close(prog_fd);
+	return ret;
+}
+
 int bpf_prog_attach_fd(int prog_fd, int target_fd, enum bpf_attach_type type)
 {
 	union bpf_attr attr = {};
@@ -1084,7 +1174,9 @@ int bpf_prog_detach_fd(int target_fd, enum bpf_attach_type type)
 	return bpf(BPF_PROG_DETACH, &attr, sizeof(attr));
 }
 
-int bpf_prog_load_dev(enum bpf_prog_type type, const struct bpf_insn *insns,
+int bpf_prog_load_dev(enum bpf_prog_type type,
+		      enum bpf_attach_type attach_type,
+		      const struct bpf_insn *insns,
 		      size_t size_insns, const char *license, __u32 ifindex,
 		      char *log, size_t size_log)
 {
@@ -1095,6 +1187,7 @@ int bpf_prog_load_dev(enum bpf_prog_type type, const struct bpf_insn *insns,
 	attr.insn_cnt = size_insns / sizeof(struct bpf_insn);
 	attr.license = bpf_ptr_to_u64(license);
 	attr.prog_ifindex = ifindex;
+	attr.expected_attach_type = attach_type;
 
 	if (size_log > 0) {
 		attr.log_buf = bpf_ptr_to_u64(log);
@@ -1108,6 +1201,7 @@ int bpf_prog_load_dev(enum bpf_prog_type type, const struct bpf_insn *insns,
 #ifdef HAVE_ELF
 struct bpf_elf_prog {
 	enum bpf_prog_type	type;
+	enum bpf_attach_type	attach_type;
 	struct bpf_insn		*insns;
 	unsigned int		insns_num;
 	size_t			size;
@@ -1159,6 +1253,7 @@ struct bpf_elf_ctx {
 	int			sec_bss;
 	char			license[ELF_MAX_LICENSE_LEN];
 	enum bpf_prog_type	type;
+	enum bpf_attach_type	attach_type;
 	__u32			ifindex;
 	bool			verbose;
 	bool			noafalg;
@@ -1277,16 +1372,6 @@ static int bpf_btf_load(void *btf, size_t size_btf,
 	}
 
 	return bpf(BPF_BTF_LOAD, &attr, sizeof(attr));
-}
-
-static int bpf_obj_pin(int fd, const char *pathname)
-{
-	union bpf_attr attr = {};
-
-	attr.pathname = bpf_ptr_to_u64(pathname);
-	attr.bpf_fd = fd;
-
-	return bpf(BPF_OBJ_PIN, &attr, sizeof(attr));
 }
 
 static int bpf_obj_hash(const char *object, uint8_t *out, size_t len)
@@ -1511,6 +1596,7 @@ static void bpf_prog_report(int fd, const char *section,
 		fd < 0 ? errno : fd);
 
 	fprintf(stderr, " - Type:         %u\n", prog->type);
+	fprintf(stderr, " - Attach Type:  %u\n", prog->attach_type);
 	fprintf(stderr, " - Instructions: %u (%u over limit)\n",
 		insns, insns > BPF_MAXINSNS ? insns - BPF_MAXINSNS : 0);
 	fprintf(stderr, " - License:      %s\n\n", prog->license);
@@ -1525,8 +1611,8 @@ static int bpf_prog_attach(const char *section,
 	int tries = 0, fd;
 retry:
 	errno = 0;
-	fd = bpf_prog_load_dev(prog->type, prog->insns, prog->size,
-			       prog->license, ctx->ifindex,
+	fd = bpf_prog_load_dev(prog->type, prog->attach_type, prog->insns,
+			       prog->size, prog->license, ctx->ifindex,
 			       ctx->log, ctx->log_size);
 	if (fd < 0 || ctx->verbose) {
 		/* The verifier log is pretty chatty, sometimes so chatty
@@ -2375,11 +2461,12 @@ static int bpf_fetch_prog(struct bpf_elf_ctx *ctx, const char *section,
 		*sseen = true;
 
 		memset(&prog, 0, sizeof(prog));
-		prog.type      = ctx->type;
-		prog.license   = ctx->license;
-		prog.size      = data.sec_data->d_size;
-		prog.insns_num = prog.size / sizeof(struct bpf_insn);
-		prog.insns     = data.sec_data->d_buf;
+		prog.type        = ctx->type;
+		prog.attach_type = ctx->attach_type;
+		prog.license     = ctx->license;
+		prog.size        = data.sec_data->d_size;
+		prog.insns_num   = prog.size / sizeof(struct bpf_insn);
+		prog.insns       = data.sec_data->d_buf;
 
 		fd = bpf_prog_attach(section, &prog, ctx);
 		if (fd < 0)
@@ -2556,6 +2643,7 @@ static int bpf_fetch_prog_relo(struct bpf_elf_ctx *ctx, const char *section,
 
 		memset(prog, 0, sizeof(*prog));
 		prog->type = ctx->type;
+		prog->attach_type = ctx->attach_type;
 		prog->license = ctx->license;
 		prog->size = data_insn.sec_data->d_size;
 		prog->insns_num = prog->size / sizeof(struct bpf_insn);
@@ -2911,8 +2999,9 @@ static void bpf_get_cfg(struct bpf_elf_ctx *ctx)
 }
 
 static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
-			    enum bpf_prog_type type, __u32 ifindex,
-			    bool verbose)
+			    enum bpf_prog_type type,
+			    enum bpf_attach_type attach_type,
+			    __u32 ifindex, bool verbose)
 {
 	uint8_t tmp[20];
 	int ret;
@@ -2933,7 +3022,8 @@ static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
 			      sizeof(ctx->obj_uid));
 
 	ctx->verbose = verbose;
-	ctx->type    = type;
+	ctx->attach_type = attach_type;
+	ctx->type = type;
 	ctx->ifindex = ifindex;
 
 	ctx->obj_fd = open(pathname, O_RDONLY);
@@ -3031,12 +3121,14 @@ static void bpf_elf_ctx_destroy(struct bpf_elf_ctx *ctx, bool failure)
 static struct bpf_elf_ctx __ctx;
 
 static int bpf_obj_open(const char *pathname, enum bpf_prog_type type,
+			enum bpf_attach_type attach_type,
 			const char *section, __u32 ifindex, bool verbose)
 {
 	struct bpf_elf_ctx *ctx = &__ctx;
 	int fd = 0, ret;
 
-	ret = bpf_elf_ctx_init(ctx, pathname, type, ifindex, verbose);
+	ret = bpf_elf_ctx_init(ctx, pathname, type, attach_type, ifindex,
+			       verbose);
 	if (ret < 0) {
 		fprintf(stderr, "Cannot initialize ELF context!\n");
 		return ret;
@@ -3231,7 +3323,7 @@ int iproute2_bpf_elf_ctx_init(struct bpf_cfg_in *cfg)
 {
 	struct bpf_elf_ctx *ctx = &__ctx;
 
-	return bpf_elf_ctx_init(ctx, cfg->object, cfg->type, cfg->ifindex, cfg->verbose);
+	return bpf_elf_ctx_init(ctx, cfg->object, cfg->type, cfg->attach_type, cfg->ifindex, cfg->verbose);
 }
 
 int iproute2_bpf_fetch_ancillary(void)

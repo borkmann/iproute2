@@ -70,6 +70,7 @@ struct bpf_cfg_in {
 	const char *section;
 	const char *uds;
 	enum bpf_prog_type type;
+	enum bpf_attach_type attach_type;
 	enum bpf_mode mode;
 	__u32 ifindex;
 	bool verbose;
@@ -270,14 +271,17 @@ int bpf_parse_and_load_common(struct bpf_cfg_in *cfg,
 const char *bpf_prog_to_default_section(enum bpf_prog_type type);
 
 int bpf_graft_map(const char *map_path, uint32_t *key, int argc, char **argv);
+int bpf_pin_prog(const char *dst_path, int argc, char **argv);
 int bpf_trace_pipe(void);
 
 void bpf_print_ops(struct rtattr *bpf_ops, __u16 len);
 
-int bpf_prog_load_dev(enum bpf_prog_type type, const struct bpf_insn *insns,
+int bpf_prog_load_dev(enum bpf_prog_type type, enum bpf_attach_type attach_type,
+		      const struct bpf_insn *insns,
 		      size_t size_insns, const char *license, __u32 ifindex,
 		      char *log, size_t size_log);
-int bpf_program_load(enum bpf_prog_type type, const struct bpf_insn *insns,
+int bpf_program_load(enum bpf_prog_type type, enum bpf_attach_type attach_type,
+		     const struct bpf_insn *insns,
 		     size_t size_insns, const char *license, char *log,
 		     size_t size_log);
 

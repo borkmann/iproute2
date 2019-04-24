@@ -9,15 +9,27 @@
 #include <bpf/bpf.h>
 #endif
 
-int bpf_program_load(enum bpf_prog_type type, const struct bpf_insn *insns,
+int bpf_program_load(enum bpf_prog_type type, enum bpf_attach_type attach_type,
+		     const struct bpf_insn *insns,
 		     size_t size_insns, const char *license, char *log,
 		     size_t size_log)
 {
 #ifdef HAVE_LIBBPF
-	return bpf_load_program(type, insns, size_insns / sizeof(struct bpf_insn),
-				license, 0, log, size_log);
+	struct bpf_load_program_attr load_attr;
+
+	memset(&load_attr, 0, sizeof(struct bpf_load_program_attr));
+	load_attr.prog_type = type;
+	load_attr.expected_attach_type = attach_type;
+	load_attr.name = NULL;
+	load_attr.insns = insns;
+	load_attr.insns_cnt = size_insns / sizeof(struct bpf_insn);
+	load_attr.license = license;
+	load_attr.kern_version = 0;
+
+	return bpf_load_program_xattr(&load_attr, log, size_log);
 #else
-	return bpf_prog_load_dev(type, insns, size_insns, license, 0, log, size_log);
+	return bpf_prog_load_dev(type, attach_type, insns, size_insns, license,
+				 0, log, size_log);
 #endif
 }
 

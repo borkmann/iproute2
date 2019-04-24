@@ -29,6 +29,7 @@ static void explain(void)
 	fprintf(stderr,
 		"Usage: ... bpf [ import UDS_FILE ] [ run CMD ]\n"
 		"       ... bpf [ debug ]\n"
+		"       ... bpf [ pin PATH ] [ object-file OBJ_FILE ] [ type TYPE ] [ attach_type TYPE ] [ section NAME ] [ verbose ]\n"
 		"       ... bpf [ graft MAP_FILE ] [ key KEY ]\n"
 		"          `... [ object-file OBJ_FILE ] [ type TYPE ] [ section NAME ] [ verbose ]\n"
 		"          `... [ object-pinned PROG_FILE ]\n"
@@ -78,6 +79,13 @@ static int parse_bpf(struct exec_util *eu, int argc, char **argv)
 				fprintf(stderr,
 					"No trace pipe, tracefs not mounted?\n");
 			return -1;
+		} else if (matches(*argv, "pin") == 0) {
+			const char *bpf_fs_path;
+
+			NEXT_ARG();
+			bpf_fs_path = *argv;
+			NEXT_ARG();
+			return bpf_pin_prog(bpf_fs_path, argc, argv);
 		} else if (matches(*argv, "graft") == 0) {
 			const char *bpf_map_path;
 			bool has_key = false;
