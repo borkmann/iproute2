@@ -122,6 +122,8 @@ static const char * const attach_type_strings[] = {
 	[BPF_CGROUP_INET6_POST_BIND]	= "post_bind6",
 	[BPF_CGROUP_UDP4_SENDMSG]	= "sendmsg4",
 	[BPF_CGROUP_UDP6_SENDMSG]	= "sendmsg6",
+	[BPF_CGROUP_UDP4_RECVMSG]	= "recvmsg4",
+	[BPF_CGROUP_UDP6_RECVMSG]	= "recvmsg6",
 	[__MAX_BPF_ATTACH_TYPE]		= NULL,
 };
 
