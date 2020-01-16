@@ -60,6 +60,7 @@ static const enum bpf_prog_type __bpf_types[] = {
 	BPF_PROG_TYPE_LWT_IN,
 	BPF_PROG_TYPE_LWT_OUT,
 	BPF_PROG_TYPE_LWT_XMIT,
+	BPF_PROG_TYPE_CGROUP_SOCK,
 	BPF_PROG_TYPE_CGROUP_SOCK_ADDR,
 };
 
@@ -99,6 +100,11 @@ static const struct bpf_prog_meta __bpf_prog_meta[] = {
 	[BPF_PROG_TYPE_LWT_SEG6LOCAL] = {
 		.type		= "lwt_seg6local",
 		.subdir		= "ip",
+		.section	= ELF_SECTION_PROG,
+	},
+	[BPF_PROG_TYPE_CGROUP_SOCK] = {
+		.type		= "sock",
+		.subdir		= "sk",
 		.section	= ELF_SECTION_PROG,
 	},
 	[BPF_PROG_TYPE_CGROUP_SOCK_ADDR] = {
