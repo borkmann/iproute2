@@ -739,36 +739,46 @@ static int bpf_gen_slave(const char *base, const char *name,
 	char bpf_lnk_dir[PATH_MAX + NAME_MAX + 1];
 	char bpf_sub_dir[PATH_MAX + NAME_MAX];
 	struct stat sb = {};
-	int ret;
+	int ret, bfd;
 
-	snprintf(bpf_lnk_dir, sizeof(bpf_lnk_dir), "%s%s/", base, link);
-	snprintf(bpf_sub_dir, sizeof(bpf_sub_dir), "%s%s",  base, name);
+	bfd = open(base, O_RDONLY);
+	if (bfd < 0) {
+		fprintf(stderr, "Couldn\'t retrieve base directory \'%s\': %s\n",
+			base, strerror(errno));
+		return bfd;
+        }
 
-	ret = symlink(bpf_lnk_dir, bpf_sub_dir);
+	ret = symlinkat(link, bfd, name);
 	if (ret) {
+		snprintf(bpf_sub_dir, sizeof(bpf_sub_dir), "%s%s",  base, name);
 		if (errno != EEXIST) {
 			if (errno != EPERM) {
 				fprintf(stderr, "symlink %s failed: %s\n",
 					bpf_sub_dir, strerror(errno));
-				return ret;
+				goto out_base;
 			}
 
-			return bpf_slave_via_bind_mnt(bpf_sub_dir,
+			snprintf(bpf_lnk_dir, sizeof(bpf_lnk_dir), "%s%s/", base, link);
+			ret = bpf_slave_via_bind_mnt(bpf_sub_dir,
 						      bpf_lnk_dir);
+			goto out_base;
 		}
 
 		ret = lstat(bpf_sub_dir, &sb);
 		if (ret) {
 			fprintf(stderr, "lstat %s failed: %s\n",
 				bpf_sub_dir, strerror(errno));
-			return ret;
+			goto out_base;
 		}
 
 		if ((sb.st_mode & S_IFMT) != S_IFLNK)
-			return bpf_gen_global(bpf_sub_dir);
+			ret = bpf_gen_global(bpf_sub_dir);
 	}
 
-	return 0;
+out_base:
+	close(bfd);
+
+	return ret;
 }
 
 static int bpf_gen_hierarchy(const char *base)
