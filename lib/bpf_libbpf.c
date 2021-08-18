@@ -328,8 +328,10 @@ int iproute2_load_libbpf(struct bpf_cfg_in *cfg)
 
 	if (cfg->verbose)
 		libbpf_set_print(verbose_print);
-	else
+	else {
+		libbpf_set_max_verifier_log_output(BPF_MAX_LOG);
 		libbpf_set_print(silent_print);
+	}
 
 	ret = iproute2_bpf_elf_ctx_init(cfg);
 	if (ret < 0) {
