@@ -361,7 +361,6 @@ enum {
 	IFLA_ALT_IFNAME, /* Alternative ifname */
 	IFLA_PERM_ADDRESS,
 	IFLA_PROTO_DOWN_REASON,
-
 	/* device (sysfs) name as parent, used instead
 	 * of IFLA_LINK where there's no parent netdev
 	 */
@@ -371,15 +370,12 @@ enum {
 	IFLA_TSO_MAX_SIZE,
 	IFLA_TSO_MAX_SEGS,
 	IFLA_ALLMULTI,		/* Allmulti count: > 0 means acts ALLMULTI */
-
 	IFLA_DEVLINK_PORT,
-
 	IFLA_GSO_IPV4_MAX_SIZE,
 	IFLA_GRO_IPV4_MAX_SIZE,
-
+	IFLA_HEADROOM,
 	__IFLA_MAX
 };
-
 
 #define IFLA_MAX (__IFLA_MAX - 1)
 
@@ -393,8 +389,10 @@ enum {
 };
 
 /* backwards compatibility for userspace */
+#ifndef __KERNEL__
 #define IFLA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ifinfomsg))))
 #define IFLA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ifinfomsg))
+#endif
 
 enum {
 	IFLA_INET_UNSPEC,
@@ -753,6 +751,31 @@ struct tunnel_msg {
 	__u16 reserved2;
 	__u32 ifindex;
 };
+
+/* META section */
+enum meta_action {
+	META_NEXT	= -1,
+	META_OKAY	= 0,
+	META_DROP	= 2,
+	META_REDIRECT	= 7,
+};
+
+enum meta_mode {
+	META_L2,
+	META_L3,
+};
+
+enum {
+	IFLA_META_UNSPEC,
+	IFLA_META_PEER_INFO,
+	IFLA_META_PRIMARY,
+	IFLA_META_POLICY,
+	IFLA_META_PEER_POLICY,
+	IFLA_META_MODE,
+	__IFLA_META_MAX,
+};
+
+#define IFLA_META_MAX	(__IFLA_META_MAX - 1)
 
 /* VXLAN section */
 
